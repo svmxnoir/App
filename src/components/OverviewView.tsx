@@ -104,13 +104,13 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
     );
 
     // فحص السؤال 2: التنبيهات العاجلة اليوم
-    if (fin.isBelowEconomicFloor) {
+    if (fin.isBelowCashCoverage) {
       belowFloorCount++;
       criticalAttentionItems.push({
         product: p,
         severity: 'danger',
-        title: `خسارة نقدية مؤكدة: ${p.name}`,
-        desc: `السعر الحالي (${formatEGP(p.currentSellingPrice)}) أقل من أرضية التكلفة (${formatEGP(fin.economicFloorPrice)}). كل قطعة تباع تسبب عجزاً نقدياً.`,
+        title: `عجز نقدي فوري مباشر: ${p.name}`,
+        desc: `السعر الحالي (${formatEGP(p.currentSellingPrice)}) أقل من سعر التغطية النقدية المباشرة (${formatEGP(fin.cashCoveragePrice)}). كل قطعة تباع تسبب خسارة نقدية حقيقية من الجيب.`,
         actionLabel: 'تعديل السعر فوراً',
       });
 
@@ -118,9 +118,17 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
         id: `ACT_FLOOR_${p.id}`,
         priority: 'CRITICAL',
         titleArabic: `وقف النزيف النقدي في صنف: ${p.name}`,
-        reasonArabic: `سعر البيع المعروض (${formatEGP(p.currentSellingPrice)}) أقل من أرضية التكلفة الاقتصادية الحقيقية بمقدار ${formatEGP(fin.economicFloorPrice - p.currentSellingPrice)}.`,
+        reasonArabic: `سعر البيع (${formatEGP(p.currentSellingPrice)}) يقل عن تكلفة التغطية النقدية المباشرة بمقدار ${formatEGP((fin.cashCoveragePrice ?? 0) - p.currentSellingPrice)}.`,
         targetProduct: p,
-        actionButtonArabic: 'رفع السعر للأرضية الاقتصادية',
+        actionButtonArabic: 'رفع السعر لتغطية الكاش',
+      });
+    } else if (fin.isBelowOperatingBreakEven) {
+      criticalAttentionItems.push({
+        product: p,
+        severity: 'warning',
+        title: `تحت التعادل التشغيلي التقديري: ${p.name}`,
+        desc: `القطعة تحقق مساهمة نقدية إيجابية (${formatEGP(fin.unitContribution)})، لكنها لا تغطي نصيبها المقدر من مصاريف المحل الثابتة (${formatEGP(fin.operatingBreakEvenPrice)} سعر التعادل).`,
+        actionLabel: 'مراجعة الهامش',
       });
     }
 
@@ -144,11 +152,12 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
       });
     }
 
-    // فحص السؤال 3: أين نفقد أرباحاً أو نفوّت فرصة تسعير؟
+    // فحص السؤال 3: أين نفقد أرباحاً أو نفوّت فرصة تسعير؟ (يشترط توفر بيانات موثقة كافية)
     const initialUnits = p.quantityReceived || p.quantityPurchased;
     if (
       remaining > 0 &&
       remaining < initialUnits * 0.3 &&
+      benchmark.hasSufficientData &&
       benchmark.medianPrice > 0 &&
       p.currentSellingPrice < benchmark.medianPrice * 0.85
     ) {
@@ -157,7 +166,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
         id: `ACT_INC_${p.id}`,
         priority: 'MEDIUM',
         titleArabic: `اقتناص فرصة رفع السعر في: ${p.name}`,
-        reasonArabic: `متبقي ${remaining} قطعة فقط بسعر (${formatEGP(p.currentSellingPrice)}) أقل بكثير من وسيط السوق (${formatEGP(benchmark.medianPrice)}). يمكنك زيادة السعر بمقدار 20-30 ج.م دون التأثير على الطلب.`,
+        reasonArabic: `متبقي ${remaining} قطعة فقط بسعر (${formatEGP(p.currentSellingPrice)}) أقل من وسيط السوق المعتمد (${formatEGP(benchmark.medianPrice)}). يمكنك رفع السعر لاقتناص الهامش دون التأثير على الطلب.`,
         targetProduct: p,
         actionButtonArabic: 'زيادة السعر واقتناص الهامش',
       });

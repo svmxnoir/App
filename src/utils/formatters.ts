@@ -1,6 +1,6 @@
 import { ProductCategory, QualityTier, Season, SourceTier, GeographyScope, CommercialLevel, VerificationStatus } from '../types/pricing';
 
-export function formatEGP(amount: number): string {
+export function formatEGP(amount: number | null | undefined): string {
   if (amount === null || amount === undefined || Number.isNaN(amount)) return '0 ج.م';
   return `${amount.toLocaleString('ar-EG', {
     minimumFractionDigits: amount % 1 === 0 ? 0 : 2,
@@ -8,12 +8,12 @@ export function formatEGP(amount: number): string {
   })} ج.م`;
 }
 
-export function formatNumber(num: number): string {
+export function formatNumber(num: number | null | undefined): string {
   if (num === null || num === undefined || Number.isNaN(num)) return '0';
   return num.toLocaleString('ar-EG');
 }
 
-export function formatPercent(pct: number): string {
+export function formatPercent(pct: number | null | undefined): string {
   if (pct === null || pct === undefined || Number.isNaN(pct)) return '0%';
   return `%${pct.toFixed(1)}`;
 }

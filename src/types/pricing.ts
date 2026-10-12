@@ -107,7 +107,7 @@ export interface MarketObservation {
   currentPrice: number;
   originalPrice: number | null;
   calculatedDiscountPct: number | null;
-  fabricComposition: string;
+  fabricComposition?: string;
   sourceUrl: string;
   sourceTier: SourceTier;
   observationDate: string;
@@ -127,6 +127,7 @@ export interface ProductRecord {
   purchaseBatch: string;           // كود الدفعة
   purchaseDate: string;            // تاريخ الشراء
   season: Season;                  // الموسم
+  fabricComposition?: string;      // تركيبة القماش (اختيارية تماماً ولا تؤثر على التسعير)
   
   // حركات المخزون
   quantityPurchased: number;       // الكمية المشتراة
@@ -152,16 +153,16 @@ export interface ProductRecord {
 }
 
 export interface FinancialCalculationResult {
-  landedUnitCost: number;            // تكلفة الوصول للقطعة (LC)
+  landedUnitCost: number;            // تكلفة الوصول للقطعة (LC = C)
   allocatedBatchExpensePerUnit: number; // نصيب القطعة من نقل ومصاريف الدفعة
-  currentSellingPrice: number;       // سعر البيع الحالي
+  currentSellingPrice: number;       // سعر البيع الحالي (P)
   grossProfit: number;               // مجمل الربح للقطعة (P - LC)
   grossMarginPercent: number;        // هامش الربح الإجمالي %
   markupPercent: number;             // نسبة الإضافة على التكلفة Markup %
   
   // التكاليف المتغيرة
-  flatVariableCostPerUnit: number;   // التكاليف المتغيرة المباشرة (تغليف + توصيل)
-  percentageVariableFeeRate: number; // إجمالي النسب المتغيرة (عمولة دفع + بيع + منصة) كسر عشري
+  flatVariableCostPerUnit: number;   // التكاليف المتغيرة المباشرة (تغليف + توصيل) (V)
+  percentageVariableFeeRate: number; // إجمالي النسب المتغيرة (عمولة دفع + بيع + منصة) كسر عشري (r)
   variableCostAmount: number;        // إجمالي التكلفة المتغيرة بالجنيه عند السعر الحالي
   
   // هامش المساهمة
@@ -169,22 +170,31 @@ export interface FinancialCalculationResult {
   contributionMarginRatio: number;   // نسبة هامش المساهمة (CMR)
   
   // التكاليف الثابتة التقديرية
-  estimatedFixedOverheadPerUnit: number; // نصيب القطعة التقديري من التكاليف الثابتة
+  estimatedFixedOverheadPerUnit: number; // نصيب القطعة التقديري من التكاليف الثابتة (F)
   netOperatingProfitPerUnit: number;     // صافي الربح التشغيلي التقديري للقطعة
+  fixedOverheadDisclosure: string;       // إفصاح محاسبي صريح عن أساس تخصيص التكاليف الثابتة
   
   // نقطة التعادل
   breakEvenQuantity: number | null;  // عدد القطع لتغطية التكاليف الثابتة المخصصة للدفعة
   breakEvenBatchRevenue: number | null;
   
-  // الحدود السعرية
-  economicFloorPrice: number;        // أرضية السعر الاقتصادية (تمنع الخسارة النقدية)
-  targetPriceFromMargin: number;     // السعر المستهدف وفقاً لهامش الربح
+  // الحدود السعرية الصريحة الثلاثة (وفقاً للأولويات المحاسبية الصارمة)
+  cashCoveragePrice: number | null;      // سعر التغطية النقدية المباشرة P = (C + V) / (1 - r)
+  operatingBreakEvenPrice: number | null;// سعر التعادل التشغيلي التقديري P = (C + F + V) / (1 - r)
+  targetPriceWithFixedOverhead: number | null; // السعر المستهدف لهامش مساهمة بعد الثابتة P = (C + F + V) / (1 - r - m)
+  
+  economicFloorPrice: number;        // أرضية السعر الاقتصادية المرجعية
+  targetPriceFromMargin: number;     // السعر المستهدف وفقاً لهامش الربح المباشر P = (C + V) / (1 - r - m)
   targetPriceFromMarkup: number;     // السعر المستهدف وفقاً لنسبة الإضافة
   
-  // مؤشرات الصحة المالية
-  isBelowEconomicFloor: boolean;
+  // مؤشرات الصحة المالية المنفصلة
+  isBelowCashCoverage: boolean;      // هل السعر أقل من سعر التغطية النقدية (نزيف نقدي فوري)
+  isBelowOperatingBreakEven: boolean;// هل السعر أقل من التعادل التشغيلي (يساهم في الكاش لكن يعجز عن تغطية المصاريف الثابتة)
+  isBelowEconomicFloor: boolean;     // للتوافق العكسي
   isNegativeContribution: boolean;
   isImpossibleTargetMargin: boolean;
+  
+  missingFinancialInputs: string[];  // المدخلات المالية المفقودة إن وجدت
 }
 
 export interface DiscountSensitivityScenario {
@@ -204,7 +214,10 @@ export interface MarketBenchmarkSummary {
   medianPrice: number;
   promoFloor: number;
   strategicAnchors: { brand: string; price: number; scope: string }[];
-  offlineAssiutCeiling: number | null; // سقف أسيوط الميداني مثل باقات فينوم
+  offlineAssiutCeiling: number | null; // سقف أسيوط الميداني
+  hasSufficientData: boolean;          // هل تتوفر بيانات موثقة كافية لمقارنة موثوقة
+  insufficientDataReason?: string;     // رسالة توضيح في حالة عدم كفاية البيانات
+  bundleOffersCount: number;           // عدد عروض الباقات المنفصلة (لا تخلط مع الفردي)
 }
 
 export interface PricingRecommendation {

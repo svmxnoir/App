@@ -191,18 +191,38 @@ export function evaluatePromotionSafety(
   let totalRegularPrice = 0;
   let totalLandedCost = 0;
   let totalFlatVariableCost = 0;
-  let maxFeeRate = 0.04; // افتراضي: 1.5% فيزا + 2.5% بائع
+  let maxFeeRate = 0; // يبدأ من الصفر الحقيقي ولا يفرض أي نسبة افتراضية غير معلنة
+  const missingInputs: string[] = [];
 
   selectedProducts.forEach((p) => {
     const { landedUnitCost } = calculateLandedUnitCost(p.costs);
-    totalRegularPrice += p.currentSellingPrice;
+    totalRegularPrice += p.currentSellingPrice ?? 0;
     totalLandedCost += landedUnitCost;
-    totalFlatVariableCost += (p.variableCosts.packagingUnitCost || 5);
-    const feeRate =
-      ((p.variableCosts.paymentFeePercent || 1.5) +
-        (p.variableCosts.salesCommissionPercent || 2.5)) /
-      100;
-    if (feeRate > maxFeeRate) maxFeeRate = feeRate;
+
+    // الحفاظ التام على الصفر الصريح (Explicit 0 remains 0)
+    const packagingCost = p.variableCosts?.packagingUnitCost ?? 0;
+    const deliveryCost = p.variableCosts?.localDeliveryUnitCost ?? 0;
+    totalFlatVariableCost += packagingCost + deliveryCost;
+
+    if (p.variableCosts?.packagingUnitCost === undefined || p.variableCosts?.packagingUnitCost === null) {
+      missingInputs.push(`تكلفة تغليف الصنف (${p.name}) غير مدخلة`);
+    }
+
+    const paymentFeePct = p.variableCosts?.paymentFeePercent ?? 0;
+    const salesCommPct = p.variableCosts?.salesCommissionPercent ?? 0;
+    const marketplacePct = p.variableCosts?.marketplaceFeePercent ?? 0;
+
+    if (p.variableCosts?.paymentFeePercent === undefined || p.variableCosts?.paymentFeePercent === null) {
+      missingInputs.push(`نسبة رسوم الدفع الإلكتروني للصنف (${p.name}) غير مدخلة`);
+    }
+    if (p.variableCosts?.salesCommissionPercent === undefined || p.variableCosts?.salesCommissionPercent === null) {
+      missingInputs.push(`نسبة عمولة المبيعات للصنف (${p.name}) غير مدخلة`);
+    }
+
+    const productFeeRate = (paymentFeePct + salesCommPct + marketplacePct) / 100;
+    if (productFeeRate > maxFeeRate) {
+      maxFeeRate = productFeeRate;
+    }
   });
 
   const offerPrice = Math.max(0, proposedOfferPrice);
@@ -216,14 +236,21 @@ export function evaluatePromotionSafety(
   const bundleCMR = offerPrice > 0 ? roundPercent((bundleContribution / offerPrice) * 100) / 100 : 0;
 
   // أرضية السعر الاقتصادية للباقة
-  const floorDenominator = Math.max(0.01, 1 - maxFeeRate - storeMinCMR);
-  const economicFloorPrice = roundMoney((totalLandedCost + totalFlatVariableCost) / floorDenominator);
+  const floorDenominator = 1 - maxFeeRate - storeMinCMR;
+  let economicFloorPrice = 0;
+  if (floorDenominator > 0) {
+    economicFloorPrice = roundMoney((totalLandedCost + totalFlatVariableCost) / floorDenominator);
+  } else {
+    // إذا كانت نسبة المساهمة المطلوبة مستحيلة رياضياً مع العمولات
+    const cashCoverageDenominator = Math.max(0.01, 1 - maxFeeRate);
+    economicFloorPrice = roundMoney((totalLandedCost + totalFlatVariableCost) / cashCoverageDenominator);
+  }
 
   const isNegativeContribution = bundleContribution <= 0;
   const isBelowEconomicFloor = offerPrice < economicFloorPrice;
   const requiresOwnerApproval = isNegativeContribution || isBelowEconomicFloor;
 
-  const warnings: string[] = [];
+  const warnings: string[] = [...missingInputs];
   let verdict = '✓ العرض آمن ومربح مالياً';
 
   if (isNegativeContribution) {
@@ -233,7 +260,7 @@ export function evaluatePromotionSafety(
     verdict = '⛔ مرفوض مالياً: خسارة نقدية مؤكدة';
   } else if (isBelowEconomicFloor) {
     warnings.push(
-      `تنبيه: سعر العرض (${offerPrice} ج.م) أقل من أرضية السعر الاقتصادية (${economicFloorPrice} ج.م). الهامش المتبقي ضئيل جداً ولا يساهم في تغطية إيجار المحل ورواتب أسيوط.`
+      `تنبيه: سعر العرض (${offerPrice} ج.م) أقل من أرضية السعر الاقتصادية (${economicFloorPrice} ج.م). الهامش المتبقي ضئيل ولا يساهم كافياً في تغطية المصاريف الثابتة.`
     );
     verdict = '⚠️ تنبيه: تحت أرضية السعر (يتطلب موافقة المالك)';
   }

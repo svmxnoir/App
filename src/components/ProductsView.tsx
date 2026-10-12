@@ -275,11 +275,15 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                         <div className="font-bold text-stone-900 text-sm">
                           {formatEGP(p.currentSellingPrice)}
                         </div>
-                        {fin.isBelowEconomicFloor && (
+                        {fin.isBelowCashCoverage ? (
                           <div className="text-[10px] text-rose-600 font-semibold">
-                            ⚠️ تحت الأرضية ({formatEGP(fin.economicFloorPrice)})
+                            ⚠️ نزيف كاش ({formatEGP(fin.cashCoveragePrice)})
                           </div>
-                        )}
+                        ) : fin.isBelowOperatingBreakEven ? (
+                          <div className="text-[10px] text-amber-700 font-medium">
+                            تحت التعادل ({formatEGP(fin.operatingBreakEvenPrice)})
+                          </div>
+                        ) : null}
                       </td>
                       <td className="py-3 px-3">
                         <div className="font-semibold text-emerald-800">{formatEGP(fin.grossProfit)}</div>

@@ -161,7 +161,7 @@ export default function App() {
   // حساب مؤشرات سريعة للشريط العلوي
   const belowFloorAlertsCount = products.filter((p) => {
     const fin = calculateProductFinancials(p, storeSettings);
-    return fin.isBelowEconomicFloor;
+    return fin.isBelowCashCoverage;
   }).length;
 
   return (
@@ -201,7 +201,7 @@ export default function App() {
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-xs font-semibold hover:bg-rose-100 transition-colors"
               >
                 <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
-                <span>{belowFloorAlertsCount} صنف تحت أرضية التكلفة!</span>
+                <span>{belowFloorAlertsCount} صنف تحت التغطية النقدية (نزيف كاش)!</span>
               </button>
             )}
           </div>

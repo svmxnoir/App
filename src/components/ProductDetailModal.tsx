@@ -163,22 +163,28 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             </span>
           </div>
           <div>
-            <span className="text-xs text-stone-500 block">أرضية السعر الاقتصادية</span>
+            <span className="text-xs text-stone-500 block">سعر التغطية النقدية (Cash Floor)</span>
             <span
               className={`font-bold text-base ${
-                financials.isBelowEconomicFloor ? 'text-rose-600' : 'text-emerald-700'
+                financials.isBelowCashCoverage ? 'text-rose-600' : 'text-emerald-700'
               }`}
             >
-              {formatEGP(financials.economicFloorPrice)}
+              {formatEGP(financials.cashCoveragePrice)}
             </span>
             <span className="text-[11px] text-stone-500 block">
-              {financials.isBelowEconomicFloor ? '⚠️ خطر: السعر تحت الأرضية!' : '✓ فوق الأرضية الاقتصادية'}
+              {financials.isBelowCashCoverage
+                ? '⚠️ خطر: نزيف نقدي مباشر!'
+                : financials.isBelowOperatingBreakEven
+                ? '⚠️ تحت التعادل التشغيلي'
+                : '✓ فوق التعادل التشغيلي'}
             </span>
           </div>
           <div>
             <span className="text-xs text-stone-500 block">المخزون المتبقي</span>
             <span className="font-bold text-stone-900 text-base">{remainingStock} قطعة</span>
-            <span className="text-[11px] text-stone-500 block">من إجمالي {product.quantityReceived} مستلم</span>
+            <span className="text-[11px] text-stone-500 block">
+              التعادل التشغيلي: {formatEGP(financials.operatingBreakEvenPrice)}
+            </span>
           </div>
         </div>
 
@@ -235,13 +241,13 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               <div className="bg-stone-50 p-4 rounded-lg border border-stone-200 text-xs text-stone-700">
                 <div className="flex items-center justify-between mb-2">
                   <span className="font-semibold text-stone-900 text-sm">
-                    مرجع أسعار السوق لفئة: {CATEGORY_LABELS[product.category]}
+                    مرجع أسعار السوق لفئة: {CATEGORY_LABELS[product.category]} ({QUALITY_TIER_LABELS[product.qualityTier]?.label})
                   </span>
                   <span className="text-stone-500">
-                    بناءً على {benchmark.sampleSize} ملاحظة سوقية معتمدة
+                    {benchmark.sampleSize} رصد تجزئة معتمد ومطابق
                   </span>
                 </div>
-                {benchmark.sampleSize > 0 ? (
+                {benchmark.hasSufficientData ? (
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-center">
                     <div className="bg-white p-2 rounded border border-stone-200">
                       <span className="text-stone-500 block">أدنى سعر رصد (Min)</span>
@@ -261,9 +267,12 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                     </div>
                   </div>
                 ) : (
-                  <p className="text-amber-700">
-                    لا توجد ملاحظات معتمدة كافية في مرصد السوق لهذه الفئة بعد. يمكنك إضافة ملاحظات في تبويب مرصد السوق.
-                  </p>
+                  <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-lg text-amber-900">
+                    <span className="font-bold block mb-0.5">بيانات سوقية موثقة غير كافية للمقارنة</span>
+                    <p className="text-[11px] text-amber-800">
+                      {benchmark.insufficientDataReason || 'لا تتوفر رصود تجزئة فردية معتمدة ومطابقة لنفس فئة الجودة. القرارات مبنية حصرياً على التكاليف الداخلية وحماية هامش المساهمة.'}
+                    </p>
+                  </div>
                 )}
               </div>
 
@@ -394,11 +403,31 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                     </span>
                   </h4>
                   <div className="flex justify-between text-xs">
-                    <span className="text-stone-600">نصيب القطعة التقديري من إيجار ورواتب أسيوط:</span>
+                    <span className="text-stone-600">نصيب القطعة التقديري من إيجار ورواتب أسيوط (F):</span>
                     <span className="font-medium text-stone-900">
                       {formatEGP(financials.estimatedFixedOverheadPerUnit)}
                     </span>
                   </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-stone-600">سعر التغطية النقدية (C + V) / (1 - r):</span>
+                    <span className="font-bold text-stone-900">
+                      {formatEGP(financials.cashCoveragePrice)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-stone-600">سعر التعادل التشغيلي التقديري (C + F + V) / (1 - r):</span>
+                    <span className="font-bold text-amber-900">
+                      {formatEGP(financials.operatingBreakEvenPrice)}
+                    </span>
+                  </div>
+                  {financials.targetPriceWithFixedOverhead && (
+                    <div className="flex justify-between text-xs">
+                      <span className="text-stone-600">السعر المستهدف لهامش ربح بعد الثابتة (C + F + V) / (1 - r - m):</span>
+                      <span className="font-bold text-emerald-800">
+                        {formatEGP(financials.targetPriceWithFixedOverhead)}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-xs">
                     <span className="text-stone-600">صافي الربح التشغيلي التقديري للقطعة:</span>
                     <span
@@ -415,8 +444,8 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                       {financials.breakEvenQuantity ? `${financials.breakEvenQuantity} قطعة` : 'غير متاح'}
                     </span>
                   </div>
-                  <p className="text-[11px] text-stone-500 leading-tight">
-                    * ملاحظة رقابية: نصيب المصاريف الثابتة هو تقدير محاسبي للمساعدة في التسعير، ولا يتم دمجه في تكلفة الوصول الفعلية لمنع ازدواجية الحساب.
+                  <p className="text-[11px] text-stone-500 leading-tight bg-stone-100/70 p-2 rounded">
+                    {financials.fixedOverheadDisclosure}
                   </p>
                 </div>
               </div>

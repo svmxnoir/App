@@ -60,8 +60,8 @@ export const MarketView: React.FC<MarketViewProps> = ({
   const [newGeography, setNewGeography] = useState<GeographyScope>('Assiut_Offline');
   const [newCommercialLevel, setNewCommercialLevel] = useState<CommercialLevel>('Retail_Public');
   const [newSourceTier, setNewSourceTier] = useState<SourceTier>('Tier_A');
+  const [newFabric, setNewFabric] = useState<string>('');
   const [newSourceUrl, setNewSourceUrl] = useState<string>('');
-  const [newFabric, setNewFabric] = useState<string>('قطن 100%');
   const [newStatus, setNewStatus] = useState<VerificationStatus>('Pending_Review');
   const [newNotes, setNewNotes] = useState<string>('');
 
@@ -89,7 +89,7 @@ export const MarketView: React.FC<MarketViewProps> = ({
       currentPrice: Number(newPrice),
       originalPrice: original,
       calculatedDiscountPct: discountPct,
-      fabricComposition: newFabric.trim(),
+      fabricComposition: newFabric.trim() || undefined,
       sourceUrl: newSourceUrl.trim() || '#',
       sourceTier: newSourceTier,
       observationDate: new Date().toISOString().slice(0, 10),
@@ -109,7 +109,7 @@ export const MarketView: React.FC<MarketViewProps> = ({
     const matchesSearch =
       o.brandName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       o.sellerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      o.fabricComposition.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (o.fabricComposition?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false) ||
       o.notes.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesCategory = categoryFilter === 'all' || o.category === categoryFilter;
@@ -472,10 +472,10 @@ export const MarketView: React.FC<MarketViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-stone-600 mb-1">مواصفات الخامة وتفاصيل القماش:</label>
+                <label className="block text-stone-600 mb-1">مواصفات الخامة وتفاصيل القماش (اختياري - لا يفرض للتسعير):</label>
                 <input
                   type="text"
-                  placeholder="مثال: قطن 100% سنغل جيرسي أو دنيم مطاط"
+                  placeholder="اختياري (مثال: قطن 100% سنغل جيرسي أو دنيم مطاط)"
                   value={newFabric}
                   onChange={(e) => setNewFabric(e.target.value)}
                   className="w-full bg-stone-50 border border-stone-300 rounded-lg p-2"

@@ -14,6 +14,9 @@ import {
   calculateVariableSellingCosts,
   calculateUnitContribution,
   calculateContributionMarginRatio,
+  calculateCashCoveragePrice,
+  calculateOperatingBreakEvenPrice,
+  calculateTargetPriceWithFixedOverhead,
   calculateEconomicFloorPrice,
   calculateTargetPriceFromMargin,
   calculateTargetPriceFromMarkup,
@@ -131,6 +134,28 @@ export const CalculatorView: React.FC<CalculatorViewProps> = ({
 
   const minCMR = storeSettings.minAcceptableCMR || 0.12;
   const floorResult = calculateEconomicFloorPrice(landedUnitCost, vcObj, minCMR);
+
+  // التكاليف الثابتة التقديرية للقطعة
+  const expectedMonthlySales = Math.max(1, storeSettings.expectedMonthlyUnitSales || 450);
+  const estimatedFixedPerUnit = Math.round(
+    ((storeSettings.monthlyFixedExpenses || 0) / expectedMonthlySales) * 100
+  ) / 100;
+  const estimatedOperatingProfit = Math.round((unitContribution - estimatedFixedPerUnit) * 100) / 100;
+
+  // مستويات الأسعار الصريحة الثلاثة
+  const cashCoverageResult = calculateCashCoveragePrice(landedUnitCost, vcObj);
+  const operatingBreakEvenResult = calculateOperatingBreakEvenPrice(
+    landedUnitCost,
+    estimatedFixedPerUnit,
+    vcObj
+  );
+  const targetWithOverheadResult = calculateTargetPriceWithFixedOverhead(
+    landedUnitCost,
+    estimatedFixedPerUnit,
+    vcObj,
+    targetMarginPercent / 100
+  );
+
   const targetMarginResult = calculateTargetPriceFromMargin(
     landedUnitCost,
     vcObj,
@@ -142,14 +167,7 @@ export const CalculatorView: React.FC<CalculatorViewProps> = ({
     targetMarkupPercent
   );
 
-  // التكاليف الثابتة التقديرية للقطعة
-  const expectedMonthlySales = Math.max(1, storeSettings.expectedMonthlyUnitSales || 450);
-  const estimatedFixedPerUnit = Math.round(
-    ((storeSettings.monthlyFixedExpenses || 0) / expectedMonthlySales) * 100
-  ) / 100;
-  const estimatedOperatingProfit = Math.round((unitContribution - estimatedFixedPerUnit) * 100) / 100;
-
-  // مقارنة السوق
+  // مقارنة السوق الموثقة
   const benchmark = calculateMarketBenchmark(selectedCategory, selectedQuality, allObservations);
 
   // حساسية الخصم
@@ -409,32 +427,41 @@ export const CalculatorView: React.FC<CalculatorViewProps> = ({
               </p>
             </div>
 
-            {/* Economic Floor Card */}
+            {/* Cash Floor & Break-Even Card */}
             <div
               className={`p-4 rounded-xl border ${
-                testSellingPrice < floorResult.price
+                cashCoverageResult.price !== null && testSellingPrice < cashCoverageResult.price
                   ? 'bg-rose-50/70 border-rose-300'
+                  : operatingBreakEvenResult.price !== null && testSellingPrice < operatingBreakEvenResult.price
+                  ? 'bg-amber-50/70 border-amber-300'
                   : 'bg-emerald-50/70 border-emerald-300'
               }`}
             >
-              <span className="text-xs text-stone-600 block mb-1">أرضية السعر الاقتصادية</span>
+              <span className="text-xs text-stone-600 block mb-1">تغطية الكاش والتعادل</span>
               <div
                 className={`text-xl font-bold ${
-                  testSellingPrice < floorResult.price ? 'text-rose-700' : 'text-emerald-800'
+                  cashCoverageResult.price !== null && testSellingPrice < cashCoverageResult.price
+                    ? 'text-rose-700'
+                    : 'text-stone-900'
                 }`}
               >
-                {formatEGP(floorResult.price)}
+                {formatEGP(cashCoverageResult.price)}
               </div>
               <p className="text-[11px] mt-1 font-medium">
-                {testSellingPrice < floorResult.price ? (
+                {cashCoverageResult.price !== null && testSellingPrice < cashCoverageResult.price ? (
                   <span className="text-rose-700 flex items-center gap-1">
                     <AlertTriangle className="w-3.5 h-3.5" />
-                    تحذير: سعرك يسبب نزيفاً نقدياً!
+                    عجز نقدي فوري: أقل من التكلفة النقدية المباشرة!
+                  </span>
+                ) : operatingBreakEvenResult.price !== null && testSellingPrice < operatingBreakEvenResult.price ? (
+                  <span className="text-amber-800 flex items-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    يغطي الكاش لكنه تحت التعادل التشغيلي ({formatEGP(operatingBreakEvenResult.price)})
                   </span>
                 ) : (
                   <span className="text-emerald-700 flex items-center gap-1">
                     <ShieldCheck className="w-3.5 h-3.5" />
-                    آمن: أعلى من أرضية التكلفة
+                    آمن: فوق التعادل التشغيلي التقديري
                   </span>
                 )}
               </p>
@@ -442,12 +469,14 @@ export const CalculatorView: React.FC<CalculatorViewProps> = ({
 
             {/* Target Price Card */}
             <div className="bg-white p-4 rounded-xl border border-stone-200">
-              <span className="text-xs text-stone-500 block mb-1">السعر المستهدف ({targetMarginPercent}% هامش)</span>
+              <span className="text-xs text-stone-500 block mb-1">
+                السعر المستهدف ({targetMarginPercent}% هامش بعد الثابتة)
+              </span>
               <div className="text-xl font-bold text-amber-900">
-                {formatEGP(targetMarginResult.price)}
+                {formatEGP(targetWithOverheadResult.price ?? targetMarginResult.price)}
               </div>
               <p className="text-[11px] text-stone-500 mt-1">
-                وعند Markup {targetMarkupPercent}% = {formatEGP(targetMarkupResult.price)}
+                مباشر: {formatEGP(targetMarginResult.price)} | مع Markup {targetMarkupPercent}%: {formatEGP(targetMarkupResult.price)}
               </p>
             </div>
           </div>
@@ -516,7 +545,7 @@ export const CalculatorView: React.FC<CalculatorViewProps> = ({
               </span>
             </div>
 
-            {benchmark.sampleSize > 0 ? (
+            {benchmark.hasSufficientData ? (
               <div className="space-y-3 pt-2">
                 {/* Horizontal scale */}
                 <div className="bg-stone-100 p-3 rounded-lg border border-stone-200 text-xs">
@@ -582,9 +611,17 @@ export const CalculatorView: React.FC<CalculatorViewProps> = ({
                 )}
               </div>
             ) : (
-              <p className="text-xs text-stone-500">
-                لا توجد بيانات كافية لهذه الفئة في المرصد. أضف ملاحظات من تبويب "مرصد السوق والأدلة".
-              </p>
+              <div className="p-4 bg-amber-50/80 border border-amber-200 rounded-lg text-xs space-y-1">
+                <span className="font-bold text-amber-950 block">بيانات سوقية موثقة غير كافية للمقارنة</span>
+                <p className="text-amber-800 leading-relaxed">
+                  {benchmark.insufficientDataReason || 'لا تتوفر رصود تجزئة فردية معتمدة ومطابقة لفئة الصنف ومستوى الجودة المحدد.'}
+                  {benchmark.bundleOffersCount > 0 && (
+                    <span className="block mt-1 text-stone-600 font-normal">
+                      * يتوفر {benchmark.bundleOffersCount} عرض باقة مسجل في المرصد، ولكن تم عزلها محاسبياً لعدم خلط سعر الباقة بسعر القطعة الفردية.
+                    </span>
+                  )}
+                </p>
+              </div>
             )}
           </div>
 
