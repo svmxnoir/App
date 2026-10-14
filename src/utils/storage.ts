@@ -24,14 +24,18 @@ const PROMOTIONS_KEY = 'assiut_retail_pricing_promotions_v1';
 export function loadStoredProducts(): ProductRecord[] {
   try {
     const raw = localStorage.getItem(PRODUCTS_KEY);
-    if (!raw) {
+    if (raw === null) {
       saveProducts(INITIAL_PRODUCTS);
       return INITIAL_PRODUCTS;
     }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : INITIAL_PRODUCTS;
+    if (Array.isArray(parsed)) {
+      return parsed; // Deliberately saved [] is preserved as valid user data!
+    }
+    console.warn('Stored products is not an array, falling back without overwriting');
+    return INITIAL_PRODUCTS;
   } catch (err) {
-    console.error('Error loading products from localStorage:', err);
+    console.error('Error loading products from localStorage (malformed JSON preserved):', err);
     return INITIAL_PRODUCTS;
   }
 }
@@ -47,14 +51,18 @@ export function saveProducts(products: ProductRecord[]): void {
 export function loadStoredObservations(): MarketObservation[] {
   try {
     const raw = localStorage.getItem(OBSERVATIONS_KEY);
-    if (!raw) {
+    if (raw === null) {
       saveObservations(INITIAL_MARKET_OBSERVATIONS);
       return INITIAL_MARKET_OBSERVATIONS;
     }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : INITIAL_MARKET_OBSERVATIONS;
+    if (Array.isArray(parsed)) {
+      return parsed; // Deliberately saved [] is preserved as valid user data!
+    }
+    console.warn('Stored observations is not an array, falling back without overwriting');
+    return INITIAL_MARKET_OBSERVATIONS;
   } catch (err) {
-    console.error('Error loading market observations:', err);
+    console.error('Error loading market observations (malformed JSON preserved):', err);
     return INITIAL_MARKET_OBSERVATIONS;
   }
 }
@@ -70,13 +78,17 @@ export function saveObservations(observations: MarketObservation[]): void {
 export function loadStoreSettings(): StoreFixedSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    if (!raw) {
+    if (raw === null) {
       saveStoreSettings(DEFAULT_STORE_SETTINGS);
       return DEFAULT_STORE_SETTINGS;
     }
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      return parsed;
+    }
+    return DEFAULT_STORE_SETTINGS;
   } catch (err) {
-    console.error('Error loading store settings:', err);
+    console.error('Error loading store settings (malformed JSON preserved):', err);
     return DEFAULT_STORE_SETTINGS;
   }
 }
@@ -92,14 +104,17 @@ export function saveStoreSettings(settings: StoreFixedSettings): void {
 export function loadStoredSeasons(): CommercialSeasonEvent[] {
   try {
     const raw = localStorage.getItem(SEASONS_KEY);
-    if (!raw) {
+    if (raw === null) {
       saveSeasons(DEFAULT_COMMERCIAL_SEASONS);
       return DEFAULT_COMMERCIAL_SEASONS;
     }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_COMMERCIAL_SEASONS;
+    if (Array.isArray(parsed)) {
+      return parsed; // Deliberately saved [] is preserved as valid user data!
+    }
+    return DEFAULT_COMMERCIAL_SEASONS;
   } catch (err) {
-    console.error('Error loading seasons:', err);
+    console.error('Error loading seasons (malformed JSON preserved):', err);
     return DEFAULT_COMMERCIAL_SEASONS;
   }
 }
@@ -115,14 +130,17 @@ export function saveSeasons(seasons: CommercialSeasonEvent[]): void {
 export function loadStoredPromotions(): StorePromotion[] {
   try {
     const raw = localStorage.getItem(PROMOTIONS_KEY);
-    if (!raw) {
+    if (raw === null) {
       savePromotions(DEFAULT_STORE_PROMOTIONS);
       return DEFAULT_STORE_PROMOTIONS;
     }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_STORE_PROMOTIONS;
+    if (Array.isArray(parsed)) {
+      return parsed; // Deliberately saved [] is preserved as valid user data!
+    }
+    return DEFAULT_STORE_PROMOTIONS;
   } catch (err) {
-    console.error('Error loading promotions:', err);
+    console.error('Error loading promotions (malformed JSON preserved):', err);
     return DEFAULT_STORE_PROMOTIONS;
   }
 }

@@ -38,18 +38,34 @@ export function calculateLandedUnitCost(costs: ProductCosts): {
 } {
   const missingCostInputs: string[] = [];
 
-  if (costs.purchaseCost === undefined || costs.purchaseCost === null || isNaN(costs.purchaseCost)) {
-    missingCostInputs.push('سعر الشراء من المورد غير محدد');
-  }
-  if (!costs.batchUnits || costs.batchUnits <= 0) {
-    missingCostInputs.push('عدد قطع الدفعة غير محدد بدقة');
+  if (
+    costs.purchaseCost === undefined ||
+    costs.purchaseCost === null ||
+    Number.isNaN(costs.purchaseCost) ||
+    !Number.isFinite(costs.purchaseCost)
+  ) {
+    missingCostInputs.push('سعر الشراء من المورد غير محدد أو غير صالح');
+  } else if (costs.purchaseCost < 0) {
+    missingCostInputs.push('سعر الشراء لا يمكن أن يكون سالباً');
   }
 
-  const purchaseCost = Math.max(0, costs.purchaseCost ?? 0);
-  const units = Math.max(1, costs.batchUnits ?? 1);
-  const totalBatchExpenses = Math.max(0, (costs.batchTransportCost ?? 0) + (costs.batchOtherExpenses ?? 0));
+  if (
+    costs.batchUnits === undefined ||
+    costs.batchUnits === null ||
+    Number.isNaN(costs.batchUnits) ||
+    !Number.isFinite(costs.batchUnits) ||
+    costs.batchUnits <= 0
+  ) {
+    missingCostInputs.push('عدد قطع الدفعة غير محدد بدقة (يجب أن يكون أكبر من الصفر)');
+  }
+
+  const purchaseCost = Math.max(0, Number.isFinite(costs.purchaseCost) ? costs.purchaseCost ?? 0 : 0);
+  const units = costs.batchUnits && Number.isFinite(costs.batchUnits) && costs.batchUnits > 0 ? costs.batchUnits : 1;
+  const transport = Math.max(0, Number.isFinite(costs.batchTransportCost) ? costs.batchTransportCost ?? 0 : 0);
+  const otherExp = Math.max(0, Number.isFinite(costs.batchOtherExpenses) ? costs.batchOtherExpenses ?? 0 : 0);
+  const totalBatchExpenses = transport + otherExp;
   const allocatedBatchExpensePerUnit = totalBatchExpenses / units;
-  const directUnitCost = Math.max(0, costs.directUnitCost ?? 0);
+  const directUnitCost = Math.max(0, Number.isFinite(costs.directUnitCost) ? costs.directUnitCost ?? 0 : 0);
 
   const landedUnitCost = purchaseCost + allocatedBatchExpensePerUnit + directUnitCost;
   return {
@@ -394,6 +410,13 @@ export function calculateProductFinancials(
   );
 
   // حساب مستويات الأسعار الثلاثة الصريحة
+  const targetMarginPct = product.targetGrossMarginPercent !== undefined && product.targetGrossMarginPercent !== null
+    ? product.targetGrossMarginPercent
+    : 35;
+  const targetMarkupPct = product.targetMarkupPercent !== undefined && product.targetMarkupPercent !== null
+    ? product.targetMarkupPercent
+    : 50;
+
   const cashCoverageResult = calculateCashCoveragePrice(landedUnitCost, product.variableCosts);
   const operatingBreakEvenResult = calculateOperatingBreakEvenPrice(
     landedUnitCost,
@@ -404,18 +427,18 @@ export function calculateProductFinancials(
     landedUnitCost,
     estimatedFixedOverheadPerUnit,
     product.variableCosts,
-    (product.targetGrossMarginPercent || 35) / 100
+    targetMarginPct / 100
   );
 
   const targetMarginResult = calculateTargetPriceFromMargin(
     landedUnitCost,
     product.variableCosts,
-    product.targetGrossMarginPercent || 35
+    targetMarginPct
   );
   const targetMarkupResult = calculateTargetPriceFromMarkup(
     landedUnitCost,
     product.variableCosts,
-    product.targetMarkupPercent || 50
+    targetMarkupPct
   );
 
   // الحدود الاقتصادية والتحذيرات الدقيقة
@@ -578,8 +601,11 @@ export function calculateMarketBenchmark(
     scope: obs.geographyScope,
   }));
 
-  const assiutObs = verifiedSingleRetail.find((obs) => obs.geographyScope === 'Assiut_Offline');
-  const offlineAssiutCeiling = assiutObs ? assiutObs.currentPrice : null;
+  // سقف أسيوط الميداني: الحد الأقصى لسعر التجزئة الفردي المعتمد في أسيوط
+  const assiutObservations = verifiedSingleRetail.filter((obs) => obs.geographyScope === 'Assiut_Offline');
+  const offlineAssiutCeiling = assiutObservations.length > 0
+    ? Math.max(...assiutObservations.map((obs) => obs.currentPrice))
+    : null;
 
   // تتطلب العينة موثوقية لا تقل عن رصدين مستقلين معتمدين
   const hasSufficientData = verifiedSingleRetail.length >= 2;

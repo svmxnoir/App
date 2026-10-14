@@ -181,6 +181,13 @@ export interface PromotionSafetyReport {
   warningMessages: string[];
   safetyVerdictArabic: string;
   minUnitsToPreserveCash: number;
+  safetyStatus:
+    | 'VALID_AND_SAFE'
+    | 'BELOW_ECONOMIC_THRESHOLD'
+    | 'NEGATIVE_CONTRIBUTION'
+    | 'INSUFFICIENT_OR_INVALID_DATA'
+    | 'MATHEMATICALLY_IMPOSSIBLE';
+  isSafe: boolean;
 }
 
 export function evaluatePromotionSafety(
@@ -188,15 +195,57 @@ export function evaluatePromotionSafety(
   proposedOfferPrice: number,
   storeMinCMR: number = 0.10
 ): PromotionSafetyReport {
+  const missingInputs: string[] = [];
+
+  // 1. فحص صحة قائمة المنتجات المختارة
+  if (!selectedProducts || selectedProducts.length === 0) {
+    return {
+      totalRegularPrice: 0,
+      offerPrice: Math.max(0, proposedOfferPrice || 0),
+      totalDiscountAmount: 0,
+      discountPercent: 0,
+      totalLandedCost: 0,
+      totalFlatVariableCost: 0,
+      feeRateDecimal: 0,
+      bundleContribution: 0,
+      bundleCMR: 0,
+      economicFloorPrice: 0,
+      isNegativeContribution: true,
+      isBelowEconomicFloor: true,
+      requiresOwnerApproval: true,
+      warningMessages: ['لم يتم اختيار أي منتجات لتقييم العرض الترويجي.'],
+      safetyVerdictArabic: '⛔ لا يمكن التقييم: لم يتم اختيار أي أصناف',
+      minUnitsToPreserveCash: 0,
+      safetyStatus: 'INSUFFICIENT_OR_INVALID_DATA',
+      isSafe: false,
+    };
+  }
+
+  // 2. فحص صلاحية سعر العرض
+  if (
+    proposedOfferPrice === undefined ||
+    proposedOfferPrice === null ||
+    Number.isNaN(proposedOfferPrice) ||
+    !Number.isFinite(proposedOfferPrice) ||
+    proposedOfferPrice <= 0
+  ) {
+    missingInputs.push('سعر العرض المقترح غير صالح أو يساوي صفراً أو أقل.');
+  }
+
   let totalRegularPrice = 0;
   let totalLandedCost = 0;
   let totalFlatVariableCost = 0;
-  let maxFeeRate = 0; // يبدأ من الصفر الحقيقي ولا يفرض أي نسبة افتراضية غير معلنة
-  const missingInputs: string[] = [];
+  let maxFeeRate = 0;
+  let hasMissingRequiredCost = false;
 
   selectedProducts.forEach((p) => {
-    const { landedUnitCost } = calculateLandedUnitCost(p.costs);
-    totalRegularPrice += p.currentSellingPrice ?? 0;
+    const { landedUnitCost, missingCostInputs } = calculateLandedUnitCost(p.costs);
+    if (missingCostInputs.length > 0) {
+      hasMissingRequiredCost = true;
+      missingCostInputs.forEach((err) => missingInputs.push(`${p.name}: ${err}`));
+    }
+
+    totalRegularPrice += Math.max(0, Number.isFinite(p.currentSellingPrice) ? p.currentSellingPrice ?? 0 : 0);
     totalLandedCost += landedUnitCost;
 
     // الحفاظ التام على الصفر الصريح (Explicit 0 remains 0)
@@ -225,7 +274,7 @@ export function evaluatePromotionSafety(
     }
   });
 
-  const offerPrice = Math.max(0, proposedOfferPrice);
+  const offerPrice = Math.max(0, proposedOfferPrice || 0);
   const totalDiscountAmount = roundMoney(Math.max(0, totalRegularPrice - offerPrice));
   const discountPercent =
     totalRegularPrice > 0 ? roundPercent((totalDiscountAmount / totalRegularPrice) * 100) : 0;
@@ -238,31 +287,54 @@ export function evaluatePromotionSafety(
   // أرضية السعر الاقتصادية للباقة
   const floorDenominator = 1 - maxFeeRate - storeMinCMR;
   let economicFloorPrice = 0;
+  let isImpossible = false;
+
   if (floorDenominator > 0) {
     economicFloorPrice = roundMoney((totalLandedCost + totalFlatVariableCost) / floorDenominator);
   } else {
-    // إذا كانت نسبة المساهمة المطلوبة مستحيلة رياضياً مع العمولات
+    isImpossible = true;
     const cashCoverageDenominator = Math.max(0.01, 1 - maxFeeRate);
     economicFloorPrice = roundMoney((totalLandedCost + totalFlatVariableCost) / cashCoverageDenominator);
+    missingInputs.push('مجموع نسبة العمولات وهامش المتجر المستهدف يتجاوز 100% (مستحيل رياضياً).');
   }
 
   const isNegativeContribution = bundleContribution <= 0;
   const isBelowEconomicFloor = offerPrice < economicFloorPrice;
-  const requiresOwnerApproval = isNegativeContribution || isBelowEconomicFloor;
+
+  // تحديد الحالة الدقيقة والأمان
+  let safetyStatus: PromotionSafetyReport['safetyStatus'] = 'VALID_AND_SAFE';
+  let verdict = '✓ العرض آمن ومربح مالياً';
+  let isSafe = true;
+
+  if (hasMissingRequiredCost || proposedOfferPrice <= 0 || !Number.isFinite(proposedOfferPrice)) {
+    safetyStatus = 'INSUFFICIENT_OR_INVALID_DATA';
+    verdict = '⚠️ بيانات غير مكتملة: لا يمكن إصدار حكم آمن بالعرض';
+    isSafe = false;
+  } else if (isImpossible) {
+    safetyStatus = 'MATHEMATICALLY_IMPOSSIBLE';
+    verdict = '⛔ مستحيل رياضياً: مجموع العمولات والهامش يتجاوز 100%';
+    isSafe = false;
+  } else if (isNegativeContribution) {
+    safetyStatus = 'NEGATIVE_CONTRIBUTION';
+    verdict = '⛔ مرفوض مالياً: خسارة نقدية مؤكدة ومساهمة سالبة';
+    isSafe = false;
+  } else if (isBelowEconomicFloor) {
+    safetyStatus = 'BELOW_ECONOMIC_THRESHOLD';
+    verdict = '⚠️ تنبيه: تحت أرضية السعر (يتطلب موافقة المالك)';
+    isSafe = false;
+  }
+
+  const requiresOwnerApproval = !isSafe;
 
   const warnings: string[] = [...missingInputs];
-  let verdict = '✓ العرض آمن ومربح مالياً';
-
-  if (isNegativeContribution) {
+  if (isNegativeContribution && safetyStatus !== 'INSUFFICIENT_OR_INVALID_DATA') {
     warnings.push(
       `خطر حرج: هذا العرض يحقق هامش مساهمة سالباً (${bundleContribution} ج.م)! كل باقة تباع ستكلف المحل خسارة نقدية مباشرة.`
     );
-    verdict = '⛔ مرفوض مالياً: خسارة نقدية مؤكدة';
-  } else if (isBelowEconomicFloor) {
+  } else if (isBelowEconomicFloor && safetyStatus !== 'INSUFFICIENT_OR_INVALID_DATA') {
     warnings.push(
       `تنبيه: سعر العرض (${offerPrice} ج.م) أقل من أرضية السعر الاقتصادية (${economicFloorPrice} ج.م). الهامش المتبقي ضئيل ولا يساهم كافياً في تغطية المصاريف الثابتة.`
     );
-    verdict = '⚠️ تنبيه: تحت أرضية السعر (يتطلب موافقة المالك)';
   }
 
   // حساب كمية البيع المطلوبة للحفاظ على نفس السيولة
@@ -291,6 +363,8 @@ export function evaluatePromotionSafety(
     warningMessages: warnings,
     safetyVerdictArabic: verdict,
     minUnitsToPreserveCash,
+    safetyStatus,
+    isSafe,
   };
 }
 
@@ -407,11 +481,13 @@ export interface WaitingProblemDiagnosticReport {
   regularPriceUnitsSold: number;
   promotionalUnitsSold: number;
   promotionalSalesSharePercent: number; // نسبة المبيعات التي تمت في العروض
-  averageDiscountDepthPercent: number;
+  averageDiscountDepthPercent: number | null; // عمق الخصم المحسوب فعلياً أو null إذا لم تتوفر مبيعات مخفضة
+  isDiscountDepthEstimated: boolean;
   totalRegularContribution: number;
   totalPromoContribution: number;
   waitingProblemSeverity: 'MILD' | 'MODERATE' | 'CRITICAL';
   hypothesisEvaluationArabic: string;
+  evidenceStrengthArabic: string;
   recommendedCountermeasures: string[];
 }
 
@@ -423,23 +499,34 @@ export function diagnoseWaitingProblem(
   let regUnits = 0;
   let totalRegularContribution = 0;
   let totalPromoContribution = 0;
+  let totalDiscountPercentagePoints = 0;
+  let eligiblePromoTxCount = 0;
 
   products.forEach((p) => {
     const { landedUnitCost } = calculateLandedUnitCost(p.costs);
-    const flatVC = p.variableCosts.packagingUnitCost || 5;
-    const feeRate = ((p.variableCosts.paymentFeePercent || 1.5) + (p.variableCosts.salesCommissionPercent || 2.5)) / 100;
+    const flatVC = p.variableCosts?.packagingUnitCost ?? 0;
+    const paymentFee = p.variableCosts?.paymentFeePercent ?? 0;
+    const salesCommission = p.variableCosts?.salesCommissionPercent ?? 0;
+    const marketplaceFee = p.variableCosts?.marketplaceFeePercent ?? 0;
+    const feeRate = (paymentFee + salesCommission + marketplaceFee) / 100;
 
-    p.salesTransactions.forEach((tx) => {
+    p.salesTransactions?.forEach((tx) => {
       totalUnits += tx.units;
       const unitCM = tx.unitPrice * (1 - feeRate) - landedUnitCost - flatVC;
       const totalCM = unitCM * tx.units;
 
-      // فحص هل المعاملة تمت بسعر مخفض ملحوظ (أقل بـ 10% أو أكثر من السعر الحالي) أو موسومة كعرض
-      const isDiscounted = tx.isPromotionSale || tx.unitPrice < p.currentSellingPrice * 0.90;
+      // فحص هل المعاملة تمت بسعر مخفض ملحوظ (أقل بـ 5% أو أكثر من السعر المسجل) أو موسومة كعرض
+      const isDiscounted = tx.isPromotionSale || (p.currentSellingPrice > 0 && tx.unitPrice < p.currentSellingPrice * 0.95);
 
       if (isDiscounted) {
         promoUnits += tx.units;
         totalPromoContribution += totalCM;
+
+        if (p.currentSellingPrice > 0 && tx.unitPrice < p.currentSellingPrice) {
+          const discountPct = ((p.currentSellingPrice - tx.unitPrice) / p.currentSellingPrice) * 100;
+          totalDiscountPercentagePoints += discountPct * tx.units;
+          eligiblePromoTxCount += tx.units;
+        }
       } else {
         regUnits += tx.units;
         totalRegularContribution += totalCM;
@@ -448,15 +535,26 @@ export function diagnoseWaitingProblem(
   });
 
   const promoShare = totalUnits > 0 ? roundPercent((promoUnits / totalUnits) * 100) : 0;
+  const averageDiscountDepthPercent =
+    eligiblePromoTxCount > 0 ? roundPercent(totalDiscountPercentagePoints / eligiblePromoTxCount) : null;
+  const isDiscountDepthEstimated = averageDiscountDepthPercent === null;
 
   let severity: 'MILD' | 'MODERATE' | 'CRITICAL' = 'MILD';
   let hypothesis = '';
+  let evidenceStrength = 'بيانات أولية محدودة';
   const countermeasures: string[] = [];
 
-  if (promoShare > 45) {
+  if (totalUnits === 0) {
+    severity = 'MILD';
+    hypothesis =
+      'فرضية انتظار الزبائن للتخفيضات غير قابلة للاختبار حالياً لعدم وجود أي مبيعات مسجلة في سجل المحل.';
+    evidenceStrength = 'لا توجد معاملات مسجلة (بيانات غير متوفرة)';
+    countermeasures.push('البدء بتسجيل حركات البيع اليومية لبناء قاعدة بيانات دقيقة للمحل.');
+  } else if (promoShare > 45) {
     severity = 'CRITICAL';
     hypothesis =
-      'الأدلة تدعم بقوة فرضية أن شريحة واسعة من زبائن المحل بأسيوط تؤجل الشراء عمداً انتظاراً للتخفيضات الكبيرة، ما يُفرغ وسط الموسم من المبيعات المربحة ويُجبر المحل على البيع بهوامش ضيقة.';
+      'المؤشرات تدعم فرضية أن شريحة من زبائن المحل بأسيوط قد تؤجل الشراء انتظاراً للتخفيضات، حيث تمثل مبيعات العروض أكثر من 45% من الحجم المسجل. هذه فرضية سلوكية تتطلب مراقبة أسباب الشراء ميدانياً.';
+    evidenceStrength = `مبني على ${totalUnits} قطعة مسجلة (${promoUnits} في العروض)`;
     countermeasures.push(
       'الوقف الفوري للتخفيضات الشاملة (Storewide Sales) والاعتماد حصرياً على باقات الأطقم وعروض الشراء المتعدد.'
     );
@@ -469,7 +567,8 @@ export function diagnoseWaitingProblem(
   } else if (promoShare > 25) {
     severity = 'MODERATE';
     hypothesis =
-      'توجد بوادر لتردد الزبائن في بداية الموسم، ولكن مبيعات السعر الكامل لا تزال تمثل الأغلبية. التدخل الوقائي مطلوب لتجنب تفاقم المشكلة.';
+      'مبيعات السعر الكامل لا تزال تمثل الأغلبية، ولكن هناك بوادر لتردد نسبي في بداية الموسم. التدخل الوقائي مستحسن كإجراء احترازي.';
+    evidenceStrength = `مبني على ${totalUnits} قطعة مسجلة (${promoUnits} في العروض)`;
     countermeasures.push(
       'حصر التخفيضات على المقاسات الشاذة والألوان بطيئة الحركة فقط، وعدم إدراج المقاسات الأساسية الشائعة.'
     );
@@ -479,7 +578,8 @@ export function diagnoseWaitingProblem(
   } else {
     severity = 'MILD';
     hypothesis =
-      'مبيعات السعر الكامل صحية جداً (أكثر من 75% من المبيعات)، ولا توجد أدلة على ظاهرة انتظار جماعي للأوكازيون.';
+      'مبيعات السعر الكامل صحية جداً (أكثر من 75% من المبيعات)، ولا تظهر أدلة تدعم فرضية الانتظار الجماعي للتخفيضات.';
+    evidenceStrength = `مبني على ${totalUnits} قطعة مسجلة (${regUnits} بالسعر الكامل)`;
     countermeasures.push(
       'الاستمرار في سياسة التسعير المتزنة وتجنب الإعلان المبكر عن مواعيد التخفيضات حتى لا تُشوش على حركة البيع الطبيعية.'
     );
@@ -490,11 +590,13 @@ export function diagnoseWaitingProblem(
     regularPriceUnitsSold: regUnits,
     promotionalUnitsSold: promoUnits,
     promotionalSalesSharePercent: promoShare,
-    averageDiscountDepthPercent: 20,
+    averageDiscountDepthPercent,
+    isDiscountDepthEstimated,
     totalRegularContribution: roundMoney(totalRegularContribution),
     totalPromoContribution: roundMoney(totalPromoContribution),
     waitingProblemSeverity: severity,
     hypothesisEvaluationArabic: hypothesis,
+    evidenceStrengthArabic: evidenceStrength,
     recommendedCountermeasures: countermeasures,
   };
 }
